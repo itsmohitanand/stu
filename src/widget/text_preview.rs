@@ -409,6 +409,19 @@ impl TextPreviewState {
         (state, guessed_encoding, warn_msg)
     }
 
+    /// Build a preview state directly from pre-rendered text (e.g. a Parquet
+    /// metadata summary) instead of decoding raw object bytes.
+    pub fn from_summary(summary: &str) -> Self {
+        let lines: Vec<Line<'static>> = summary
+            .lines()
+            .map(|l| Line::raw(l.to_string()))
+            .collect();
+        Self {
+            scroll_lines_state: ScrollLinesState::new(lines, ScrollLinesOptions::default()),
+            encoding: EncodingType::Utf8,
+        }
+    }
+
     pub fn set_encoding(&mut self, encoding: EncodingType) {
         self.encoding = encoding;
     }

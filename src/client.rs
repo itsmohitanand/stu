@@ -291,6 +291,38 @@ impl Client {
         Ok(())
     }
 
+    /// Fetch a single byte range `[start, end]` (inclusive) of an object.
+    /// Used to read a Parquet footer without downloading the whole object.
+    pub async fn download_object_range(
+        &self,
+        bucket: &str,
+        key: &str,
+        version_id: Option<String>,
+        start: usize,
+        end: usize,
+    ) -> Result<Vec<u8>> {
+        let mut request = self
+            .client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .range(format!("bytes={start}-{end}"));
+        if let Some(version_id) = version_id {
+            request = request.version_id(version_id);
+        }
+
+        let output = request
+            .send()
+            .await
+            .map_err(|e| AppError::new("Failed to download object range", e))?;
+        let data = output
+            .body
+            .collect()
+            .await
+            .map_err(|e| AppError::new("Failed to collect body", e))?;
+        Ok(data.to_vec())
+    }
+
     pub async fn list_all_download_objects(
         &self,
         bucket: &str,

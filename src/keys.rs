@@ -52,6 +52,7 @@ pub enum UserEvent {
     ObjectDetailDownload,
     ObjectDetailDownloadAs,
     ObjectDetailPreview,
+    ObjectDetailPreviewMetadata,
     ObjectDetailCopyDetails,
     ObjectDetailManagementConsole,
     ObjectPreviewDown,
@@ -69,6 +70,8 @@ pub enum UserEvent {
     ObjectPreviewToggleWrap,
     ObjectPreviewToggleNumber,
     ObjectPreviewCopy,
+    ObjectPreviewSearch,
+    ObjectPreviewResetSearch,
     HelpClose,
     InputDialogClose,
     InputDialogApply,
@@ -167,6 +170,7 @@ fn build_user_event_mapper(
     set_event_to_map(&mut map, &bindings, "object_detail", "download", UserEvent::ObjectDetailDownload)?;
     set_event_to_map(&mut map, &bindings, "object_detail", "download_as", UserEvent::ObjectDetailDownloadAs)?;
     set_event_to_map(&mut map, &bindings, "object_detail", "preview", UserEvent::ObjectDetailPreview)?;
+    set_event_to_map(&mut map, &bindings, "object_detail", "preview_metadata", UserEvent::ObjectDetailPreviewMetadata)?;
     set_event_to_map(&mut map, &bindings, "object_detail", "copy_details", UserEvent::ObjectDetailCopyDetails)?;
     set_event_to_map(&mut map, &bindings, "object_detail", "management_console", UserEvent::ObjectDetailManagementConsole)?;
 
@@ -185,6 +189,8 @@ fn build_user_event_mapper(
     set_event_to_map(&mut map, &bindings, "object_preview", "toggle_wrap", UserEvent::ObjectPreviewToggleWrap)?;
     set_event_to_map(&mut map, &bindings, "object_preview", "toggle_number", UserEvent::ObjectPreviewToggleNumber)?;
     set_event_to_map(&mut map, &bindings, "object_preview", "copy", UserEvent::ObjectPreviewCopy)?;
+    set_event_to_map(&mut map, &bindings, "object_preview", "search", UserEvent::ObjectPreviewSearch)?;
+    set_event_to_map(&mut map, &bindings, "object_preview", "reset_search", UserEvent::ObjectPreviewResetSearch)?;
 
     set_event_to_map(&mut map, &bindings, "help", "close", UserEvent::HelpClose)?;
 

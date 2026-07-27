@@ -119,6 +119,8 @@ impl Page {
         file_detail: FileDetail,
         file_version_id: Option<String>,
         object: RawObject,
+        object_key: ObjectKey,
+        metadata: bool,
         ctx: Rc<AppContext>,
         tx: Sender,
     ) -> Self {
@@ -126,6 +128,8 @@ impl Page {
             file_detail,
             file_version_id,
             object,
+            object_key,
+            metadata,
             ctx,
             tx,
         )))

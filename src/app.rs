@@ -32,7 +32,7 @@ use crate::{
         AppObjects, BucketItem, DownloadObjectInfo, FileDetail, ObjectItem, ObjectKey, RawObject,
     },
     pages::page::{Page, PageStack},
-    widget::{Header, LoadingDialog, Status, StatusType},
+    widget::{footer_metadata_len, Header, LoadingDialog, Status, StatusType, FOOTER_SIZE},
 };
 
 #[derive(Debug)]
@@ -587,11 +587,13 @@ impl App {
         object_key: ObjectKey,
         file_detail: FileDetail,
         version_id: Option<String>,
+        metadata: bool,
     ) {
         self.tx.send(AppEventType::PreviewObject(
             object_key,
             file_detail,
             version_id,
+            metadata,
         ));
         self.is_loading = true;
     }
@@ -800,6 +802,7 @@ impl App {
         object_key: ObjectKey,
         file_detail: FileDetail,
         version_id: Option<String>,
+        metadata: bool,
     ) {
         let size_byte = file_detail.size_byte;
 
@@ -808,8 +811,20 @@ impl App {
 
         let client = self.client.clone();
         let tx = self.tx.clone();
-        let loading = self.handle_loading_size(size_byte, tx.clone());
 
+        // Metadata preview (Parquet): fetch only the footer via ranged GETs rather
+        // than the whole object. The normal preview below downloads everything.
+        if metadata {
+            spawn(async move {
+                let obj = fetch_parquet_footer(&client, &bucket, &key, version_id.clone(), size_byte).await;
+                let result =
+                    CompletePreviewObjectResult::new(obj, file_detail, version_id, object_key, true);
+                tx.send(AppEventType::CompletePreviewObject(result));
+            });
+            return;
+        }
+
+        let loading = self.handle_loading_size(size_byte, tx.clone());
         spawn(async move {
             let mut bytes = Vec::with_capacity(size_byte);
             let result = {
@@ -819,7 +834,8 @@ impl App {
                     .await
             };
             let obj = result.map(|_| RawObject { bytes });
-            let result = CompletePreviewObjectResult::new(obj, file_detail, version_id);
+            let result =
+                CompletePreviewObjectResult::new(obj, file_detail, version_id, object_key, false);
             tx.send(AppEventType::CompletePreviewObject(result));
         });
     }
@@ -830,11 +846,15 @@ impl App {
                 obj,
                 file_detail,
                 file_version_id,
+                object_key,
+                metadata,
             }) => {
                 let object_preview_page = Page::of_object_preview(
                     file_detail,
                     file_version_id,
                     obj,
+                    object_key,
+                    metadata,
                     Rc::clone(&self.ctx),
                     self.tx.clone(),
                 );
@@ -1068,6 +1088,39 @@ impl App {
             f.render_widget(dialog, f.area());
         }
     }
+}
+
+/// Fetch only the Parquet footer metadata via two small ranged GETs, using the
+/// already-known object size. The row data is never downloaded. The returned
+/// `RawObject` holds just the Thrift-encoded metadata block.
+async fn fetch_parquet_footer(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    version_id: Option<String>,
+    size_byte: usize,
+) -> Result<RawObject> {
+    if size_byte < FOOTER_SIZE {
+        return Err(AppError::msg("Not a valid Parquet file (too small)"));
+    }
+
+    // Last 8 bytes: 4-byte little-endian metadata length + "PAR1" magic.
+    let tail = client
+        .download_object_range(bucket, key, version_id.clone(), size_byte - FOOTER_SIZE, size_byte - 1)
+        .await?;
+    let tail: &[u8; FOOTER_SIZE] = tail
+        .as_slice()
+        .try_into()
+        .map_err(|_| AppError::msg("Failed to read Parquet footer"))?;
+    let meta_len = footer_metadata_len(tail).map_err(AppError::msg)?;
+
+    let meta_start = size_byte
+        .checked_sub(FOOTER_SIZE + meta_len)
+        .ok_or_else(|| AppError::msg("Not a valid Parquet file (bad footer length)"))?;
+    let bytes = client
+        .download_object_range(bucket, key, version_id, meta_start, size_byte - FOOTER_SIZE - 1)
+        .await?;
+    Ok(RawObject { bytes })
 }
 
 #[cfg(test)]

@@ -135,8 +135,8 @@ pub async fn run<B: Backend<Error = std::io::Error>>(
             AppEventType::CompleteDownloadObjects(result) => {
                 app.complete_download_objects(result);
             }
-            AppEventType::PreviewObject(object_key, file_detail, version_id) => {
-                app.preview_object(object_key, file_detail, version_id);
+            AppEventType::PreviewObject(object_key, file_detail, version_id, metadata) => {
+                app.preview_object(object_key, file_detail, version_id, metadata);
             }
             AppEventType::CompletePreviewObject(result) => {
                 app.complete_preview_object(result);
@@ -171,8 +171,8 @@ pub async fn run<B: Backend<Error = std::io::Error>>(
             AppEventType::OpenObjectVersionsTab => {
                 app.open_object_versions_tab();
             }
-            AppEventType::OpenPreview(object_key, file_detail, version_id) => {
-                app.open_preview(object_key, file_detail, version_id);
+            AppEventType::OpenPreview(object_key, file_detail, version_id, metadata) => {
+                app.open_preview(object_key, file_detail, version_id, metadata);
             }
             AppEventType::PreviewRerenderImage => {
                 app.preview_rerender_image();

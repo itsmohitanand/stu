@@ -24,6 +24,7 @@ use crate::{
     },
     keys::{UserEvent, UserEventMapper},
     object::{FileDetail, FileVersion, ObjectItem, ObjectKey},
+    util::extension_from_file_name,
     widget::{
         Bar, CopyDetailDialog, CopyDetailDialogState, Divider, InputDialog, InputDialogState,
         ScrollLines, ScrollLinesOptions, ScrollLinesState, ScrollList, ScrollListState,
@@ -139,6 +140,9 @@ impl ObjectDetailPage {
                     }
                     UserEvent::ObjectDetailPreview => {
                         self.preview();
+                    }
+                    UserEvent::ObjectDetailPreviewMetadata => {
+                        self.preview_metadata();
                     }
                     UserEvent::ObjectDetailCopyDetails => {
                         self.open_copy_detail_dialog();
@@ -262,6 +266,7 @@ impl ObjectDetailPage {
                         BuildHelpsItem::new(UserEvent::ObjectDetailDownload, "Download object"),
                         BuildHelpsItem::new(UserEvent::ObjectDetailDownloadAs, "Download object as"),
                         BuildHelpsItem::new(UserEvent::ObjectDetailPreview, "Preview object"),
+                        BuildHelpsItem::new(UserEvent::ObjectDetailPreviewMetadata, "Preview Parquet metadata"),
                         BuildHelpsItem::new(UserEvent::ObjectDetailManagementConsole, "Open management console in browser"),
                     ]
                 },
@@ -279,6 +284,7 @@ impl ObjectDetailPage {
                         BuildHelpsItem::new(UserEvent::ObjectDetailDownload, "Download object"),
                         BuildHelpsItem::new(UserEvent::ObjectDetailDownloadAs, "Download object as"),
                         BuildHelpsItem::new(UserEvent::ObjectDetailPreview, "Preview object"),
+                        BuildHelpsItem::new(UserEvent::ObjectDetailPreviewMetadata, "Preview Parquet metadata"),
                         BuildHelpsItem::new(UserEvent::ObjectDetailManagementConsole, "Open management console in browser"),
                     ]
                 },
@@ -315,6 +321,7 @@ impl ObjectDetailPage {
                             BuildShortHelpsItem::group(vec![UserEvent::ObjectDetailDown, UserEvent::ObjectDetailUp], "Scroll", 5),
                             BuildShortHelpsItem::group(vec![UserEvent::ObjectDetailDownload, UserEvent::ObjectDetailDownloadAs], "Download", 1),
                             BuildShortHelpsItem::single(UserEvent::ObjectDetailPreview, "Preview", 4),
+                            BuildShortHelpsItem::single(UserEvent::ObjectDetailPreviewMetadata, "Metadata", 6),
                             BuildShortHelpsItem::single(UserEvent::ObjectDetailBack, "Close", 2),
                             BuildShortHelpsItem::single(UserEvent::Help, "Help", 0),
                         ]
@@ -326,6 +333,7 @@ impl ObjectDetailPage {
                             BuildShortHelpsItem::group(vec![UserEvent::ObjectDetailDown, UserEvent::ObjectDetailUp], "Select", 5),
                             BuildShortHelpsItem::group(vec![UserEvent::ObjectDetailDownload, UserEvent::ObjectDetailDownloadAs], "Download", 1),
                             BuildShortHelpsItem::single(UserEvent::ObjectDetailPreview, "Preview", 4),
+                            BuildShortHelpsItem::single(UserEvent::ObjectDetailPreviewMetadata, "Metadata", 6),
                             BuildShortHelpsItem::single(UserEvent::ObjectDetailBack, "Close", 2),
                             BuildShortHelpsItem::single(UserEvent::Help, "Help", 0),
                         ]
@@ -452,6 +460,25 @@ impl ObjectDetailPage {
             object_key,
             file_detail,
             version_id,
+            false,
+        ));
+    }
+
+    fn preview_metadata(&self) {
+        if extension_from_file_name(&self.file_detail.name) != "parquet" {
+            self.tx.send(AppEventType::NotifyWarn(
+                "Metadata preview is only supported for Parquet files".into(),
+            ));
+            return;
+        }
+        let object_key = self.object_key.clone();
+        let file_detail = self.file_detail.clone();
+        let version_id = self.current_selected_version_id();
+        self.tx.send(AppEventType::OpenPreview(
+            object_key,
+            file_detail,
+            version_id,
+            true,
         ));
     }
 

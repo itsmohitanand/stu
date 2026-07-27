@@ -41,7 +41,7 @@ pub enum AppEventType {
     CompleteDownloadObject(Result<CompleteDownloadObjectResult>),
     DownloadObjects(String, ObjectKey, String, Vec<DownloadObjectInfo>),
     CompleteDownloadObjects(Result<CompleteDownloadObjectsResult>),
-    PreviewObject(ObjectKey, FileDetail, Option<String>),
+    PreviewObject(ObjectKey, FileDetail, Option<String>, bool),
     CompletePreviewObject(Result<CompletePreviewObjectResult>),
     StartSaveObject(String, Arc<RawObject>),
     SaveObject(String, Arc<RawObject>),
@@ -53,7 +53,7 @@ pub enum AppEventType {
     ObjectListRefresh,
     BackToBucketList,
     OpenObjectVersionsTab,
-    OpenPreview(ObjectKey, FileDetail, Option<String>),
+    OpenPreview(ObjectKey, FileDetail, Option<String>, bool),
     PreviewRerenderImage,
     BucketListOpenManagementConsole,
     ObjectListOpenManagementConsole(ObjectKey),
@@ -222,6 +222,8 @@ pub struct CompletePreviewObjectResult {
     pub obj: RawObject,
     pub file_detail: FileDetail,
     pub file_version_id: Option<String>,
+    pub object_key: ObjectKey,
+    pub metadata: bool,
 }
 
 impl CompletePreviewObjectResult {
@@ -229,12 +231,16 @@ impl CompletePreviewObjectResult {
         obj: Result<RawObject>,
         file_detail: FileDetail,
         file_version_id: Option<String>,
+        object_key: ObjectKey,
+        metadata: bool,
     ) -> Result<CompletePreviewObjectResult> {
         let obj = obj?;
         Ok(CompletePreviewObjectResult {
             obj,
             file_detail,
             file_version_id,
+            object_key,
+            metadata,
         })
     }
 }

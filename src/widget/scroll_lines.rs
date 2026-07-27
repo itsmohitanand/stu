@@ -42,6 +42,7 @@ impl Default for ScrollLinesOptions {
 
 #[derive(Debug, Default)]
 pub struct ScrollLinesState {
+    all_lines: Vec<Line<'static>>,
     lines: Vec<Line<'static>>,
     max_digits: usize,
     max_line_width: usize,
@@ -53,16 +54,40 @@ pub struct ScrollLinesState {
 
 impl ScrollLinesState {
     pub fn new(lines: Vec<Line<'static>>, options: ScrollLinesOptions) -> Self {
-        let max_digits = digits(lines.len());
-        let max_line_width = lines.iter().map(Line::width).max().unwrap_or_default();
-
-        Self {
-            lines,
-            max_digits,
-            max_line_width,
+        let mut state = Self {
+            all_lines: lines,
             options,
             ..Default::default()
-        }
+        };
+        state.set_visible_lines(state.all_lines.clone());
+        state
+    }
+
+    fn set_visible_lines(&mut self, lines: Vec<Line<'static>>) {
+        self.max_digits = digits(lines.len());
+        self.max_line_width = lines.iter().map(Line::width).max().unwrap_or_default();
+        self.lines = lines;
+        self.v_offset = 0;
+        self.h_offset = 0;
+    }
+
+    /// Keep only lines containing `query` (case-insensitive). Returns the number
+    /// of matching lines. An empty query restores all lines.
+    pub fn apply_filter(&mut self, query: &str) -> usize {
+        let query = query.to_lowercase();
+        let lines: Vec<Line<'static>> = self
+            .all_lines
+            .iter()
+            .filter(|line| line_to_string(line).to_lowercase().contains(&query))
+            .cloned()
+            .collect();
+        let count = lines.len();
+        self.set_visible_lines(lines);
+        count
+    }
+
+    pub fn clear_filter(&mut self) {
+        self.set_visible_lines(self.all_lines.clone());
     }
 
     pub fn scroll_forward(&mut self) {
@@ -709,6 +734,23 @@ mod tests {
         }
 
         assert_eq!(buf, expected);
+    }
+
+    #[test]
+    fn test_apply_and_clear_filter() {
+        let mut state = state(true, true);
+        let total = state.lines.len();
+
+        // "ddd"-containing lines only (case-insensitive)
+        assert_eq!(state.apply_filter("DDD"), 3);
+        assert_eq!(state.lines.len(), 3);
+
+        // no match restores nothing visible; count reflects that
+        assert_eq!(state.apply_filter("zzz"), 0);
+        assert_eq!(state.lines.len(), 0);
+
+        state.clear_filter();
+        assert_eq!(state.lines.len(), total);
     }
 
     fn state(number: bool, wrap: bool) -> ScrollLinesState {

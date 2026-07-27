@@ -12,10 +12,10 @@ use crate::{
         SpansWithPriority,
     },
     keys::{UserEvent, UserEventMapper},
-    object::{FileDetail, RawObject},
+    object::{FileDetail, ObjectKey, RawObject},
     widget::{
-        self, EncodingDialog, EncodingDialogState, ImagePreview, ImagePreviewState, InputDialog,
-        InputDialogState, TextPreview, TextPreviewState,
+        self, parquet_preview_string, EncodingDialog, EncodingDialogState, ImagePreview,
+        ImagePreviewState, InputDialog, InputDialogState, TextPreview, TextPreviewState,
     },
 };
 
@@ -26,6 +26,10 @@ pub struct ObjectPreviewPage {
     file_detail: FileDetail,
     file_version_id: Option<String>,
     object: Arc<RawObject>,
+    object_key: ObjectKey,
+    // Some(_) for Parquet previews: the object holds only the footer, so download
+    // and copy operate differently (re-fetch by key / copy this summary).
+    parquet_summary: Option<String>,
 
     view_state: ViewState,
     encoding_dialog_state: EncodingDialogState,
@@ -46,6 +50,7 @@ enum ViewState {
     Default,
     SaveDialog(InputDialogState),
     EncodingDialog,
+    SearchDialog(InputDialogState),
 }
 
 impl ObjectPreviewPage {
@@ -53,12 +58,22 @@ impl ObjectPreviewPage {
         file_detail: FileDetail,
         file_version_id: Option<String>,
         object: RawObject,
+        object_key: ObjectKey,
+        metadata: bool,
         ctx: Rc<AppContext>,
         tx: Sender,
     ) -> Self {
         let mut encoding_dialog_state = EncodingDialogState::new(&ctx.config.preview.encodings);
 
-        let preview_type = if infer::is_image(&object.bytes) {
+        let mut parquet_summary = None;
+        let preview_type = if metadata {
+            // Metadata preview: `object` holds only the Parquet footer bytes. Render
+            // its summary through the text-preview path so scroll/search work for free.
+            let summary = parquet_preview_string(&object.bytes);
+            let state = TextPreviewState::from_summary(&summary);
+            parquet_summary = Some(summary);
+            PreviewType::Text(state)
+        } else if infer::is_image(&object.bytes) {
             let (state, msg) =
                 ImagePreviewState::new(&object.bytes, ctx.env.image_picker.clone().into());
             if let Some(msg) = msg {
@@ -86,6 +101,8 @@ impl ObjectPreviewPage {
         Self {
             preview_type,
             object: Arc::new(object),
+            object_key,
+            parquet_summary,
             file_detail,
             file_version_id,
             view_state: ViewState::Default,
@@ -144,6 +161,12 @@ impl ObjectPreviewPage {
                     UserEvent::ObjectPreviewCopy => {
                         self.copy_text_content();
                     }
+                    UserEvent::ObjectPreviewSearch => {
+                        self.open_search_dialog();
+                    }
+                    UserEvent::ObjectPreviewResetSearch => {
+                        self.reset_search();
+                    }
                     UserEvent::Help => {
                         self.tx.send(AppEventType::OpenHelp);
                     }
@@ -180,6 +203,22 @@ impl ObjectPreviewPage {
                         let input = state.input().into();
                         self.download_as(input);
                         // enable_image_render is called after download is completed
+                    }
+                    UserEvent::Help => {
+                        self.tx.send(AppEventType::OpenHelp);
+                    }
+                    => {
+                        state.handle_key_event(key_event);
+                    }
+                }
+            }
+            (ViewState::SearchDialog(state), _) => {
+                handle_user_events_with_default! { user_events =>
+                    UserEvent::InputDialogClose => {
+                        self.close_search_dialog();
+                    }
+                    UserEvent::InputDialogApply => {
+                        self.apply_search();
                     }
                     UserEvent::Help => {
                         self.tx.send(AppEventType::OpenHelp);
@@ -248,6 +287,17 @@ impl ObjectPreviewPage {
                 EncodingDialog::new(&self.encoding_dialog_state).theme(self.ctx.theme());
             f.render_widget(encoding_dialog, area);
         }
+
+        if let ViewState::SearchDialog(state) = &mut self.view_state {
+            let search_dialog = InputDialog::default()
+                .title("Search")
+                .max_width(40)
+                .theme(self.ctx.theme());
+            f.render_stateful_widget(search_dialog, area, state);
+
+            let (cursor_x, cursor_y) = state.cursor();
+            f.set_cursor_position((cursor_x, cursor_y));
+        }
     }
 
     pub fn helps(&self, mapper: &UserEventMapper) -> Vec<Spans> {
@@ -271,6 +321,8 @@ impl ObjectPreviewPage {
                     BuildHelpsItem::new(UserEvent::ObjectPreviewDownloadAs, "Download object as"),
                     BuildHelpsItem::new(UserEvent::ObjectPreviewEncoding, "Open encoding dialog"),
                     BuildHelpsItem::new(UserEvent::ObjectPreviewCopy, "Copy content to clipboard"),
+                    BuildHelpsItem::new(UserEvent::ObjectPreviewSearch, "Search (filter lines)"),
+                    BuildHelpsItem::new(UserEvent::ObjectPreviewResetSearch, "Reset search"),
                 ]
             },
             (ViewState::Default, PreviewType::Image(_)) => {
@@ -287,6 +339,13 @@ impl ObjectPreviewPage {
                     BuildHelpsItem::new(UserEvent::Quit, "Quit app"),
                     BuildHelpsItem::new(UserEvent::InputDialogClose, "Close save dialog"),
                     BuildHelpsItem::new(UserEvent::InputDialogApply, "Download object"),
+                ]
+            },
+            (ViewState::SearchDialog(_), _) => {
+                vec![
+                    BuildHelpsItem::new(UserEvent::Quit, "Quit app"),
+                    BuildHelpsItem::new(UserEvent::InputDialogClose, "Close search dialog"),
+                    BuildHelpsItem::new(UserEvent::InputDialogApply, "Search"),
                 ]
             },
             (ViewState::EncodingDialog, _) => {
@@ -313,6 +372,7 @@ impl ObjectPreviewPage {
                     BuildShortHelpsItem::group(vec![UserEvent::ObjectPreviewDownload, UserEvent::ObjectPreviewDownloadAs], "Download", 3),
                     BuildShortHelpsItem::single(UserEvent::ObjectPreviewEncoding, "Encoding", 4),
                     BuildShortHelpsItem::single(UserEvent::ObjectPreviewCopy, "Copy", 6),
+                    BuildShortHelpsItem::group(vec![UserEvent::ObjectPreviewSearch, UserEvent::ObjectPreviewResetSearch], "Search", 5),
                     BuildShortHelpsItem::single(UserEvent::ObjectPreviewBack, "Close", 1),
                     BuildShortHelpsItem::single(UserEvent::Help, "Help", 0),
                 ]
@@ -330,6 +390,13 @@ impl ObjectPreviewPage {
                 vec![
                     BuildShortHelpsItem::single(UserEvent::InputDialogClose, "Close", 2),
                     BuildShortHelpsItem::single(UserEvent::InputDialogApply, "Download", 1),
+                    BuildShortHelpsItem::single(UserEvent::Help, "Help", 0),
+                ]
+            },
+            (ViewState::SearchDialog(_), _) => {
+                vec![
+                    BuildShortHelpsItem::single(UserEvent::InputDialogClose, "Close", 2),
+                    BuildShortHelpsItem::single(UserEvent::InputDialogApply, "Search", 1),
                     BuildShortHelpsItem::single(UserEvent::Help, "Help", 0),
                 ]
             },
@@ -353,6 +420,15 @@ impl ObjectPreviewPage {
     }
 
     fn copy_text_content(&mut self) {
+        // For Parquet, the object holds only the footer, so copy the rendered
+        // summary instead of decoding the raw bytes.
+        if let Some(summary) = &self.parquet_summary {
+            self.tx.send(AppEventType::CopyTextToClipboard(
+                self.file_detail.name.clone(),
+                summary.clone(),
+            ));
+            return;
+        }
         if let PreviewType::Text(state) = &self.preview_type {
             let encoding: &encoding_rs::Encoding = state.encoding.into();
             let (content, _, _) = encoding.decode(&self.object.bytes);
@@ -381,6 +457,10 @@ impl ObjectPreviewPage {
     }
 
     fn open_encoding_dialog(&mut self) {
+        // Encoding is meaningless for a Parquet metadata summary.
+        if self.parquet_summary.is_some() {
+            return;
+        }
         if let PreviewType::Text(_) = &mut self.preview_type {
             self.view_state = ViewState::EncodingDialog;
         }
@@ -406,6 +486,41 @@ impl ObjectPreviewPage {
         self.close_encoding_dialog();
     }
 
+    fn open_search_dialog(&mut self) {
+        if let PreviewType::Text(_) = &self.preview_type {
+            self.view_state = ViewState::SearchDialog(InputDialogState::default());
+        }
+    }
+
+    fn close_search_dialog(&mut self) {
+        self.view_state = ViewState::Default;
+    }
+
+    fn apply_search(&mut self) {
+        let query = match &self.view_state {
+            ViewState::SearchDialog(state) => state.input().to_string(),
+            _ => return,
+        };
+        self.close_search_dialog();
+        if let PreviewType::Text(text) = &mut self.preview_type {
+            let count = text.scroll_lines_state.apply_filter(&query);
+            if count == 0 && !query.is_empty() {
+                text.scroll_lines_state.clear_filter();
+                self.tx
+                    .send(AppEventType::NotifyWarn(format!("No match for `{query}`")));
+            } else {
+                self.tx
+                    .send(AppEventType::NotifyInfo(format!("{count} lines match")));
+            }
+        }
+    }
+
+    fn reset_search(&mut self) {
+        if let PreviewType::Text(text) = &mut self.preview_type {
+            text.scroll_lines_state.clear_filter();
+        }
+    }
+
     pub fn enable_image_render(&mut self) {
         if let PreviewType::Image(state) = &mut self.preview_type {
             state.set_render(true);
@@ -423,6 +538,17 @@ impl ObjectPreviewPage {
     }
 
     fn download(&self) {
+        // Parquet previews hold only the footer, so re-fetch the full object by
+        // key rather than saving the in-memory bytes.
+        if self.parquet_summary.is_some() {
+            self.tx.send(AppEventType::StartDownloadObject(
+                self.object_key.clone(),
+                self.file_detail.name.clone(),
+                self.file_detail.size_byte,
+                self.file_version_id.clone(),
+            ));
+            return;
+        }
         self.tx.send(AppEventType::StartSaveObject(
             self.file_detail.name.clone(),
             Arc::clone(&self.object),
@@ -432,6 +558,17 @@ impl ObjectPreviewPage {
     fn download_as(&mut self, input: String) {
         let input: String = input.trim().into();
         if input.is_empty() {
+            return;
+        }
+
+        if self.parquet_summary.is_some() {
+            self.tx.send(AppEventType::StartDownloadObjectAs(
+                self.object_key.clone(),
+                self.file_detail.size_byte,
+                input,
+                self.file_version_id.clone(),
+            ));
+            self.close_save_dialog();
             return;
         }
 
@@ -483,7 +620,7 @@ mod tests {
                 "Thank you!",
             ];
             let object = object(&preview);
-            let mut page = ObjectPreviewPage::new(file_detail, None, object, ctx, tx);
+            let mut page = ObjectPreviewPage::new(file_detail, None, object, object_key(), false, ctx, tx);
             let area = Rect::new(0, 0, 30, 10);
             page.render(f, area);
         })?;
@@ -520,7 +657,7 @@ mod tests {
             let file_detail = file_detail();
             let preview = ["Hello, world!"; 20];
             let object = object(&preview);
-            let mut page = ObjectPreviewPage::new(file_detail, None, object, ctx, tx);
+            let mut page = ObjectPreviewPage::new(file_detail, None, object, object_key(), false, ctx, tx);
             let area = Rect::new(0, 0, 30, 10);
             page.render(f, area);
         })?;
@@ -562,7 +699,7 @@ mod tests {
                 "Thank you!",
             ];
             let object = object(&preview);
-            let mut page = ObjectPreviewPage::new(file_detail, None, object, ctx, tx);
+            let mut page = ObjectPreviewPage::new(file_detail, None, object, object_key(), false, ctx, tx);
             page.open_save_dialog();
             let area = Rect::new(0, 0, 30, 10);
             page.render(f, area);
@@ -607,6 +744,13 @@ mod tests {
     fn sender() -> Sender {
         let (tx, _) = tokio::sync::mpsc::unbounded_channel();
         Sender::new(tx)
+    }
+
+    fn object_key() -> ObjectKey {
+        ObjectKey {
+            bucket_name: "bucket-1".to_string(),
+            object_path: vec!["file.txt".to_string()],
+        }
     }
 
     fn file_detail() -> FileDetail {
