@@ -29,13 +29,11 @@ For detailed usage, configuration, and advanced features, see the [full document
 
 ## Installation
 
-If you're using Cargo:
+Install this fork's `fork/main` branch with Cargo:
 
 ```
-$ cargo install --locked stu
+$ cargo install --git https://github.com/itsmohitanand/stu --branch fork/main --locked
 ```
-
-For other download options, see [Installation](https://lusingander.github.io/stu/getting-started/installation.html).
 
 ## Usage
 
