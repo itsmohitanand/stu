@@ -29,7 +29,13 @@ For detailed usage, configuration, and advanced features, see the [full document
 
 ## Installation
 
-Install this fork's `fork/main` branch with Cargo:
+First install Cargo (via rustup) if you don't have it:
+
+```
+$ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then install this fork's `fork/main` branch:
 
 ```
 $ cargo install --git https://github.com/itsmohitanand/stu --branch fork/main --locked
