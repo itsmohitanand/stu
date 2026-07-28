@@ -5,6 +5,8 @@
 
 S3 Terminal UI 🪣
 
+> **This is an opinionated fork of [lusingander/stu](https://github.com/lusingander/stu).** It adds functionality that suits my own workflow and is not planned for the upstream repo.
+
 <img src="./img/demo.gif">
 
 ## About
